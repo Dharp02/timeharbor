@@ -1,0 +1,49 @@
+<!-- imports/ui/components/activityReport.html -->
+
+<template name="activityReport">
+  <div class="activity-report-container">
+    <h3>Activity Report</h3>
+    
+    {{#if checkingConnection}}
+      <p>Checking ActivityWatch connection...</p>
+    {{else}}
+      {{#if awConnected}}
+        <div class="connection-status success">
+          ✓ ActivityWatch connected
+        </div>
+        
+        <button class="btn btn-primary generate-report">
+          Generate My Report
+        </button>
+        
+        {{#if generatingReport}}
+          <p>Generating report...</p>
+        {{/if}}
+        
+        {{#if currentReport}}
+          <div class="report-preview">
+            <h4>Your Activity Summary</h4>
+            <p>Total Hours: {{currentReport.totalHours}}</p>
+            
+            {{#if currentReport.categories}}
+              <ul>
+                {{#each currentReport.categories}}
+                  <li>{{name}}: {{hours}}h ({{percentage}}%)</li>
+                {{/each}}
+              </ul>
+            {{/if}}
+            
+            <button class="btn btn-success share-report">
+              📤 Share with Manager
+            </button>
+          </div>
+        {{/if}}
+      {{else}}
+        <div class="connection-status error">
+          ❌ ActivityWatch not running
+          <p>Please start ActivityWatch on your computer</p>
+        </div>
+      {{/if}}
+    {{/if}}
+  </div>
+</template>

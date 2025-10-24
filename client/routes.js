@@ -62,6 +62,18 @@ FlowRouter.route('/admin', {
   }
 });
 
+
+
+// Activity report (summary) view
+FlowRouter.route('/activity', {
+  name: 'activityReport',
+  action() {
+    requireAuth(this, FlowRouter.go);
+    currentScreen.set('mainLayout');
+    currentRouteTemplate.set('activityReport');
+  }
+});
+
 // Individual Timesheet route - NEW!
 FlowRouter.route('/timesheet/:userId', {
   name: 'timesheet',
@@ -106,6 +118,9 @@ export const navigateToRoute = (routeName, params = {}) => {
       break;
     case 'calendar':
       FlowRouter.go('/calendar');
+      break;
+    case 'activityReport':
+      FlowRouter.go('/activity');
       break;
     case 'admin':
       FlowRouter.go('/admin');

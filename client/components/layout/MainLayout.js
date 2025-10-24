@@ -3,6 +3,7 @@ import { ReactiveVar } from 'meteor/reactive-var';
 import { FlowRouter } from 'meteor/ostrio:flow-router-extra';
 import { currentScreen } from '../auth/AuthPage.js';
 import { currentRouteTemplate } from '../../routes.js';
+import '../activityReport/activityReport.js';
 
 const MESSAGE_TIMEOUT = 3000;
 const ERROR_PREFIX = 'Logout failed: ';
@@ -84,7 +85,8 @@ if (Template.mainLayout) {
       } else if (href === '/admin' || target === 'admin') {
         FlowRouter.go('/admin');
       } else {
-        FlowRouter.go('/');
+        // Forward any other nav href (like /activity or /activity/report) to FlowRouter
+        FlowRouter.go(href);
       }
     },
     'click #logoutBtn'(event, instance) {
@@ -98,7 +100,8 @@ if (Template.mainLayout) {
       // Start logout process
       isLogoutLoading.set(true);
       Meteor.logout(handleLogoutResult);
-    }
+    },
+    
   });
 }
 
