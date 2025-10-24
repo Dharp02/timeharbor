@@ -6,6 +6,117 @@ import { ActivityData, ActivitySummary, PrivacySettings, Teams } from '../../col
 import axios from 'axios';
 
 export const activityWatchMethods = {
+
+    async 'activityWatch.testQueryOnly'(startDate, endDate) {
+    check(startDate, String);
+    check(endDate, String);
+    if (!this.userId) throw new Meteor.Error('not-authorized');
+    
+    try {
+      const bucketsRes = await axios.get('http://localhost:5600/api/0/buckets');
+      const buckets = Object.keys(bucketsRes.data);
+      const windowBucket = buckets.find(b => b.includes('aw-watcher-window'));
+      
+      if (!windowBucket) {
+        return { success: false, error: 'No window bucket found', buckets };
+      }
+      
+      const query = {
+        timeperiods: [`${startDate}T00:00:00/${endDate}T23:59:59`],
+        query: [
+          `events = query_bucket("${windowBucket}");`,
+          `RETURN = events;`
+        ]
+      };
+      
+      console.log('Testing query:', JSON.stringify(query, null, 2));
+      
+      const response = await axios.post(
+        'http://localhost:5600/api/0/query',
+        query,
+        { timeout: 10000 }
+      );
+      
+      return {
+        success: true,
+        api: 'query',
+        bucketUsed: windowBucket,
+        eventsCount: response.data[0]?.length || 0,
+        sampleEvent: response.data[0]?.[0] || null
+      };
+      
+    } catch (error) {
+      return {
+        success: false,
+        api: 'query',
+        error: error.message,
+        status: error.response?.status,
+        responseData: error.response?.data
+      };
+    }
+  },
+  
+  async 'activityWatch.testDirectOnly'(startDate, endDate) {
+    check(startDate, String);
+    check(endDate, String);
+    if (!this.userId) throw new Meteor.Error('not-authorized');
+    
+    try {
+      const bucketsRes = await axios.get('http://localhost:5600/api/0/buckets');
+      const buckets = Object.keys(bucketsRes.data);
+      
+      let totalEvents = 0;
+      const bucketResults = {};
+      
+      for (const bucketId of buckets) {
+        if (bucketId.includes('afk')) continue;
+        
+        try {
+          const events = await axios.get(
+            `http://localhost:5600/api/0/buckets/${bucketId}/events`,
+            {
+              params: {
+                start: `${startDate}T00:00:00`,
+                end: `${endDate}T23:59:59`,
+                limit: 10000
+              }
+            }
+          );
+          
+          bucketResults[bucketId] = events.data.length;
+          totalEvents += events.data.length;
+          
+        } catch (err) {
+          bucketResults[bucketId] = `Error: ${err.message}`;
+        }
+      }
+      
+      return {
+        success: true,
+        api: 'direct',
+        totalEvents,
+        bucketResults
+      };
+      
+    } catch (error) {
+      return {
+        success: false,
+        api: 'direct',
+        error: error.message
+      };
+    }
+},
+  
+  
+
+
+
+
+
+
+
+
+
   
   /**
    * Fetch and process ActivityWatch data
@@ -170,6 +281,28 @@ export const activityWatchMethods = {
     
     return enriched;
   },
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   
   /**
    * Update team privacy settings (admin only)
@@ -237,96 +370,71 @@ export const activityWatchMethods = {
 async function fetchFromActivityWatch(startDate, endDate) {
 
     try {
-    // First, let's get the available buckets
-    const bucketsResponse = await axios.get(
-      'http://localhost:5600/api/0/buckets',
-      { timeout: 5000 }
-    );
-    
-    console.log('Available buckets:', Object.keys(bucketsResponse.data));
-    
-    // Find the window and web buckets
-    const buckets = Object.keys(bucketsResponse.data);
+    // Try query API with proper syntax
+    const bucketsRes = await axios.get('http://localhost:5600/api/0/buckets');
+    const buckets = Object.keys(bucketsRes.data);
     const windowBucket = buckets.find(b => b.includes('aw-watcher-window'));
-    const webBucket = buckets.find(b => b.includes('aw-watcher-web'));
     
-    console.log('Using buckets:', { windowBucket, webBucket });
+    if (!windowBucket) throw new Error('No bucket found');
     
-    if (!windowBucket) {
-      throw new Error('No window watcher bucket found. Is ActivityWatch tracking your activity?');
-    }
-    
-    // Build the query based on available buckets
-    let queryParts = [];
-    
-    if (windowBucket) {
-      queryParts.push(`window = query_bucket("${windowBucket}");`);
-    }
-    
-    if (webBucket) {
-      queryParts.push(`web = query_bucket("${webBucket}");`);
-      queryParts.push(`events = concat(window, web);`);
-    } else {
-      queryParts.push(`events = window;`);
-    }
-    
-    queryParts.push(`RETURN = events;`);
-    
+    // Try query API
     const query = {
       timeperiods: [`${startDate}T00:00:00/${endDate}T23:59:59`],
-      query: queryParts
+      query: [
+        `events = query_bucket("${windowBucket}");`,
+        `RETURN = events;`
+      ]
     };
-    
-    console.log('Sending query:', JSON.stringify(query, null, 2));
     
     const response = await axios.post(
       'http://localhost:5600/api/0/query',
       query,
-      { 
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      }
+      { timeout: 10000 }
     );
     
-    console.log('ActivityWatch response:', response.data);
-    
+    console.log('✅ Using query API');
     return response.data[0] || [];
     
   } catch (error) {
-    console.error('ActivityWatch fetch error:', error.response?.data || error.message);
-    throw new Error(`ActivityWatch API error: ${error.response?.data?.message || error.message}`);
+    // Fallback to direct API (what's working)
+    console.log('⚠️ Query API failed, using direct API');
+    return await fetchFromActivityWatchDirect(startDate, endDate);
   }
-
-
-
-
-
-
-
-
-
-
-
-//   const query = {
-//     timeperiods: [`${startDate}T00:00:00Z/${endDate}T23:59:59Z`],
-//     query: [
-//       "window = flood(query_bucket(find_bucket('aw-watcher-window_')));",
-//       "web = flood(query_bucket(find_bucket('aw-watcher-web_')));",
-//       "events = concat(window, web);",
-//       "RETURN = sort_by_duration(events);"
-//     ]
-//   };
-  
-//   const response = await axios.post(
-//     'http://localhost:5600/api/0/query',
-//     query,
-//     { timeout: 10000 }
-//   );
-  
-//   return response.data[0] || [];
 }
+
+// Keep your working direct API as fallback
+async function fetchFromActivityWatchDirect(startDate, endDate) {
+  const bucketsRes = await axios.get('http://localhost:5600/api/0/buckets');
+  const buckets = Object.keys(bucketsRes.data);
+  
+  const allEvents = [];
+  for (const bucketId of buckets) {
+    if (bucketId.includes('afk')) continue;
+    
+    try {
+      const events = await axios.get(
+        `http://localhost:5600/api/0/buckets/${bucketId}/events`,
+        {
+          params: {
+            start: `${startDate}T00:00:00`,
+            end: `${endDate}T23:59:59`,
+            limit: 10000
+          }
+        }
+      );
+      allEvents.push(...events.data);
+    } catch (err) {
+      console.log(`Skipping ${bucketId}`);
+    }
+  }
+  
+  return allEvents;
+}
+
+
+
+
+
 
 function processActivityData(rawData, privacySettings) {
   return rawData.map(event => ({
