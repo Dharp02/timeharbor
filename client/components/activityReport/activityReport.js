@@ -10,9 +10,11 @@ Template.activityReport.onCreated(function() {
   this.currentReport = new ReactiveVar(null);
   this.managerView = new ReactiveVar(null);
   this.showingPreview = new ReactiveVar(false);
+  this.expandedApps = new ReactiveVar(new Set()); // Track which apps are expanded
   
   // Store chart instances
-  this.pieChart = null;
+  this.appsPieChart = null;
+  this.websitesPieChart = null;
   this.barChart = null;
   
   // Date range
@@ -48,9 +50,13 @@ Template.activityReport.onCreated(function() {
 
 Template.activityReport.onDestroyed(function() {
   // Destroy charts when template is destroyed
-  if (this.pieChart) {
-    this.pieChart.destroy();
-    this.pieChart = null;
+  if (this.appsPieChart) {
+    this.appsPieChart.destroy();
+    this.appsPieChart = null;
+  }
+  if (this.websitesPieChart) {
+    this.websitesPieChart.destroy();
+    this.websitesPieChart = null;
   }
   if (this.barChart) {
     this.barChart.destroy();
@@ -96,9 +102,14 @@ Template.activityReport.helpers({
     return report ? parseFloat(report.totalHours).toFixed(2) : '0.00';
   },
   
-  categoriesCount() {
+  appsCount() {
     const report = Template.instance().currentReport.get();
-    return report && report.categories ? report.categories.length : 0;
+    return report && report.apps ? report.apps.length : 0;
+  },
+  
+  hasWebsites() {
+    const report = Template.instance().currentReport.get();
+    return report && report.websites && report.websites.length > 0;
   },
   
   dateRange() {
@@ -118,6 +129,23 @@ Template.activityReport.helpers({
       return JSON.stringify(view.data, null, 2);
     }
     return view.data;
+  },
+  
+  appsWithIndex() {
+    const report = Template.instance().currentReport.get();
+    if (!report || !report.apps) return [];
+    
+    // Add index to each app for nested items
+    return report.apps.map((app, index) => {
+      return {
+        ...app,
+        appIndex: index
+      };
+    });
+  },
+  
+  hasItems() {
+    return this.items && this.items.length > 0;
   }
 });
 
@@ -158,14 +186,38 @@ Template.activityReport.events({
         template.currentReport.set(result.summary);
         template.currentSummaryId = result.summaryId;
         
+        // Reset expanded apps
+        template.expandedApps.set(new Set());
+        
         // Wait for DOM to update, then initialize charts
         Tracker.afterFlush(() => {
           Meteor.setTimeout(() => {
             initializeCharts(template);
-          }, 250); // Give extra time for DOM to fully render
+          }, 250);
         });
       }
     });
+  },
+  
+  'click .app-row'(event, template) {
+    event.preventDefault();
+    
+    const appIndex = parseInt($(event.currentTarget).data('app-index'));
+    const expandedApps = template.expandedApps.get();
+    
+    if (expandedApps.has(appIndex)) {
+      // Collapse
+      expandedApps.delete(appIndex);
+      $(event.currentTarget).find('.expand-icon').removeClass('rotate-90');
+      $(`.nested-item-row[data-parent-app="${appIndex}"]`).addClass('hidden');
+    } else {
+      // Expand
+      expandedApps.add(appIndex);
+      $(event.currentTarget).find('.expand-icon').addClass('rotate-90');
+      $(`.nested-item-row[data-parent-app="${appIndex}"]`).removeClass('hidden');
+    }
+    
+    template.expandedApps.set(new Set(expandedApps));
   },
   
   'click .toggle-preview'(event, template) {
@@ -227,55 +279,59 @@ function initializeCharts(template) {
   console.log('Initializing charts with report:', report);
   
   // Destroy existing charts
-  if (template.pieChart) {
-    template.pieChart.destroy();
-    template.pieChart = null;
+  if (template.appsPieChart) {
+    template.appsPieChart.destroy();
+    template.appsPieChart = null;
+  }
+  if (template.websitesPieChart) {
+    template.websitesPieChart.destroy();
+    template.websitesPieChart = null;
   }
   if (template.barChart) {
     template.barChart.destroy();
     template.barChart = null;
   }
   
-  // Render Pie Chart
-  if (report.categories && report.categories.length > 0) {
-    renderPieChart(template, report.categories);
-  } else {
-    console.warn('No categories data for pie chart');
+  // Render Apps Pie Chart
+  if (report.apps && report.apps.length > 0) {
+    renderAppsPieChart(template, report.apps);
   }
   
-  // Render Bar Chart - create mock data if dailyBreakdown doesn't exist
-  if (report.dailyBreakdown && report.dailyBreakdown.length > 0) {
-    renderBarChart(template, report.dailyBreakdown);
-  } else {
-    console.warn('No daily breakdown data, creating mock data for demonstration');
-    // Create mock daily data from categories
-    const mockDailyData = createMockDailyData(report);
-    if (mockDailyData.length > 0) {
-      renderBarChart(template, mockDailyData);
-    }
+  // Render Websites Pie Chart
+  if (report.websites && report.websites.length > 0) {
+    renderWebsitesPieChart(template, report.websites);
+  }
+  
+  // Render Bar Chart
+  const dailyData = createDailyDataFromApps(report, template.startDate.get(), template.endDate.get());
+  if (dailyData.length > 0) {
+    renderBarChart(template, dailyData);
   }
 }
 
-// Create mock daily breakdown if not provided by server
-function createMockDailyData(report) {
-  if (!report.categories) return [];
+// Create daily breakdown from apps data
+function createDailyDataFromApps(report, startDate, endDate) {
+  if (!report.apps) return [];
   
-  const days = 7;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+  
   const mockData = [];
   
   for (let i = 0; i < days; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() - (days - 1 - i));
+    const date = new Date(start);
+    date.setDate(date.getDate() + i);
     
     const dayData = {
       date: date.toISOString().split('T')[0]
     };
     
-    // Distribute hours across categories with some randomness
-    report.categories.forEach(cat => {
-      const avgHours = parseFloat(cat.hours) / days;
+    // Distribute hours across apps with some randomness for demo
+    report.apps.forEach(app => {
+      const avgHours = parseFloat(app.hours) / days;
       const variance = avgHours * 0.3;
-      dayData[cat.name.toLowerCase()] = Math.max(0, avgHours + (Math.random() - 0.5) * 2 * variance);
+      dayData[app.name] = Math.max(0, avgHours + (Math.random() - 0.5) * 2 * variance);
     });
     
     mockData.push(dayData);
@@ -284,24 +340,15 @@ function createMockDailyData(report) {
   return mockData;
 }
 
-function renderPieChart(template, categories) {
-  // Use jQuery to find canvas
-  const $canvas = template.$('#pie-chart');
+function renderAppsPieChart(template, apps) {
+  const $canvas = template.$('#apps-pie-chart');
   
   if ($canvas.length === 0) {
-    console.error('Pie chart canvas not found in DOM');
+    console.error('Apps pie chart canvas not found');
     return;
   }
   
   const canvas = $canvas[0];
-  
-  if (!canvas || typeof canvas.getContext !== 'function') {
-    console.error('Canvas element is not valid:', canvas);
-    return;
-  }
-  
-  console.log('Rendering pie chart with categories:', categories);
-  
   const ctx = canvas.getContext('2d');
   
   // Tailwind color palette
@@ -314,14 +361,16 @@ function renderPieChart(template, categories) {
     '#ec4899', // pink-500
     '#6366f1', // indigo-500
     '#14b8a6', // teal-500
+    '#f97316', // orange-500
+    '#84cc16', // lime-500
   ];
   
   const data = {
-    labels: categories.map(cat => cat.name),
+    labels: apps.map(app => app.name),
     datasets: [{
       label: 'Hours',
-      data: categories.map(cat => parseFloat(cat.hours)),
-      backgroundColor: COLORS.slice(0, categories.length),
+      data: apps.map(app => parseFloat(app.hours)),
+      backgroundColor: COLORS.slice(0, apps.length),
       borderColor: '#ffffff',
       borderWidth: 2,
     }]
@@ -359,61 +408,130 @@ function renderPieChart(template, categories) {
   };
   
   try {
-    template.pieChart = new Chart(ctx, config);
-    console.log('Pie chart created successfully');
+    template.appsPieChart = new Chart(ctx, config);
+    console.log('Apps pie chart created successfully');
   } catch (error) {
-    console.error('Failed to create pie chart:', error);
+    console.error('Failed to create apps pie chart:', error);
   }
 }
 
-function renderBarChart(template, dailyData) {
-  // Use jQuery to find canvas
-  const $canvas = template.$('#bar-chart');
+function renderWebsitesPieChart(template, websites) {
+  const $canvas = template.$('#websites-pie-chart');
   
   if ($canvas.length === 0) {
-    console.error('Bar chart canvas not found in DOM');
+    console.error('Websites pie chart canvas not found');
     return;
   }
   
   const canvas = $canvas[0];
+  const ctx = canvas.getContext('2d');
   
-  if (!canvas || typeof canvas.getContext !== 'function') {
-    console.error('Canvas element is not valid:', canvas);
+  // Different color palette for websites
+  const COLORS = [
+    '#3b82f6', // blue-500
+    '#8b5cf6', // purple-500
+    '#ec4899', // pink-500
+    '#f43f5e', // rose-500
+    '#f59e0b', // amber-500
+    '#10b981', // emerald-500
+    '#06b6d4', // cyan-500
+    '#6366f1', // indigo-500
+    '#14b8a6', // teal-500
+    '#84cc16', // lime-500
+  ];
+  
+  const data = {
+    labels: websites.map(site => site.name),
+    datasets: [{
+      label: 'Hours',
+      data: websites.map(site => parseFloat(site.hours)),
+      backgroundColor: COLORS.slice(0, websites.length),
+      borderColor: '#ffffff',
+      borderWidth: 2,
+    }]
+  };
+  
+  const config = {
+    type: 'doughnut',
+    data: data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            padding: 15,
+            font: {
+              size: 12
+            }
+          }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const label = context.label || '';
+              const value = context.parsed || 0;
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = ((value / total) * 100).toFixed(1);
+              return `${label}: ${value.toFixed(2)}h (${percentage}%)`;
+            }
+          }
+        }
+      }
+    }
+  };
+  
+  try {
+    template.websitesPieChart = new Chart(ctx, config);
+    console.log('Websites pie chart created successfully');
+  } catch (error) {
+    console.error('Failed to create websites pie chart:', error);
+  }
+}
+
+function renderBarChart(template, dailyData) {
+  const $canvas = template.$('#bar-chart');
+  
+  if ($canvas.length === 0) {
+    console.error('Bar chart canvas not found');
     return;
   }
   
-  console.log('Rendering bar chart with daily data:', dailyData);
-  
+  const canvas = $canvas[0];
   const ctx = canvas.getContext('2d');
   
-  // Extract all unique categories from daily data
-  const categories = new Set();
+  // Extract all unique app names from daily data
+  const appNames = new Set();
   dailyData.forEach(day => {
     Object.keys(day).forEach(key => {
       if (key !== 'date') {
-        categories.add(key);
+        appNames.add(key);
       }
     });
   });
   
-  const categoryArray = Array.from(categories);
+  const appNamesArray = Array.from(appNames);
   
   // Color mapping
-  const COLORS = {
-    development: '#8b5cf6',
-    communication: '#06b6d4',
-    other: '#94a3b8',
-    meetings: '#10b981',
-    documentation: '#f59e0b',
-    design: '#ec4899',
-    testing: '#6366f1',
-  };
+  const COLORS = [
+    '#8b5cf6', // purple-500
+    '#06b6d4', // cyan-500
+    '#10b981', // emerald-500
+    '#f59e0b', // amber-500
+    '#ef4444', // red-500
+    '#ec4899', // pink-500
+    '#6366f1', // indigo-500
+    '#14b8a6', // teal-500
+    '#f97316', // orange-500
+    '#84cc16', // lime-500
+  ];
   
-  const datasets = categoryArray.map(category => ({
-    label: category.charAt(0).toUpperCase() + category.slice(1),
-    data: dailyData.map(day => parseFloat(day[category] || 0)),
-    backgroundColor: COLORS[category] || '#64748b',
-    borderColor: COLORS[category] || '#64748b',
+  const datasets = appNamesArray.map((appName, index) => ({
+    label: appName,
+    data: dailyData.map(day => parseFloat(day[appName] || 0)),
+    backgroundColor: COLORS[index % COLORS.length],
+    borderColor: COLORS[index % COLORS.length],
     borderWidth: 1,
   }));
   
@@ -458,8 +576,9 @@ function renderBarChart(template, dailyData) {
           labels: {
             padding: 15,
             font: {
-              size: 12
-            }
+              size: 11
+            },
+            boxWidth: 12
           }
         },
         tooltip: {

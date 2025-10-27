@@ -95,15 +95,15 @@
                 </div>
               </div>
               
-              <!-- Categories Card -->
+              <!-- Apps Count Card -->
               <div class="bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-lg shadow-lg p-6 text-white">
                 <div class="flex items-center justify-between">
                   <div>
-                    <p class="text-cyan-100 text-sm font-medium">Categories</p>
-                    <p class="text-4xl font-bold mt-2">{{categoriesCount}}</p>
+                    <p class="text-cyan-100 text-sm font-medium">Apps Used</p>
+                    <p class="text-4xl font-bold mt-2">{{appsCount}}</p>
                   </div>
                   <svg class="h-12 w-12 text-cyan-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
                   </svg>
                 </div>
               </div>
@@ -126,41 +126,74 @@
             <!-- Charts Row -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               
-              <!-- Pie Chart -->
+              <!-- Application Usage Pie Chart -->
               <div class="bg-white rounded-lg shadow-md p-6">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Category Breakdown</h3>
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Application Usage</h3>
                 <div class="w-full" style="height: 300px;">
-                  <canvas id="pie-chart"></canvas>
+                  <canvas id="apps-pie-chart"></canvas>
                 </div>
               </div>
               
-              <!-- Bar Chart -->
+              <!-- Browser Activity Pie Chart -->
               <div class="bg-white rounded-lg shadow-md p-6">
-                <h3 class="text-lg font-semibold text-slate-800 mb-4">Daily Activity</h3>
+                <h3 class="text-lg font-semibold text-slate-800 mb-4">Browser Activity</h3>
                 <div class="w-full" style="height: 300px;">
-                  <canvas id="bar-chart"></canvas>
+                  {{#if hasWebsites}}
+                    <canvas id="websites-pie-chart"></canvas>
+                  {{else}}
+                    <div class="flex items-center justify-center h-full text-slate-400">
+                      <div class="text-center">
+                        <svg class="h-16 w-16 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"></path>
+                        </svg>
+                        <p>No browser activity recorded</p>
+                      </div>
+                    </div>
+                  {{/if}}
                 </div>
               </div>
               
             </div>
+
+            <!-- Daily Activity Bar Chart -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+              <h3 class="text-lg font-semibold text-slate-800 mb-4">Daily Activity (Apps)</h3>
+              <div class="w-full" style="height: 300px;">
+                <canvas id="bar-chart"></canvas>
+              </div>
+            </div>
             
-            <!-- Detailed Breakdown Table -->
+            <!-- Detailed Breakdown Table (Expandable) -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
               <h3 class="text-lg font-semibold text-slate-800 mb-4">Detailed Breakdown</h3>
               <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-200">
                   <thead class="bg-slate-50">
                     <tr>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Category</th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-12"></th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">App / File / Website</th>
                       <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Hours</th>
                       <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Percentage</th>
                     </tr>
                   </thead>
                   <tbody class="bg-white divide-y divide-slate-200">
-                    {{#each currentReport.categories}}
-                      <tr>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{{name}}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{{hours}}h</td>
+                    {{#each appsWithIndex}}
+                      <!-- App Row -->
+                      <tr class="app-row hover:bg-slate-50 cursor-pointer" data-app-index="{{appIndex}}">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                          {{#if hasItems}}
+                            <svg class="expand-icon h-5 w-5 text-slate-400 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                          {{/if}}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                          <div class="flex items-center">
+                            <span class="text-sm font-semibold text-slate-900">{{name}}</span>
+                            <span class="ml-2 px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-600">{{category}}</span>
+                          </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{{hours}}h</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                           <div class="flex items-center">
                             <div class="w-16 bg-slate-200 rounded-full h-2 mr-2">
@@ -170,6 +203,31 @@
                           </div>
                         </td>
                       </tr>
+                      
+                      <!-- Nested Items (Files/Websites) -->
+                      {{#each items}}
+                        <tr class="nested-item-row hidden" data-parent-app="{{../appIndex}}">
+                          <td class="px-6 py-3 whitespace-nowrap"></td>
+                          <td class="px-6 py-3 whitespace-nowrap">
+                            <div class="pl-8 flex items-center">
+                              <svg class="h-4 w-4 text-slate-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                              </svg>
+                              <span class="text-sm text-slate-700">{{name}}</span>
+                            </div>
+                          </td>
+                          <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">{{hours}}h</td>
+                          <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-500">
+                            <div class="flex items-center">
+                              <div class="w-12 bg-slate-200 rounded-full h-1.5 mr-2">
+                                <div class="bg-cyan-500 h-1.5 rounded-full" style="width: {{percentage}}%"></div>
+                              </div>
+                              <span class="text-xs">{{percentage}}%</span>
+                            </div>
+                          </td>
+                        </tr>
+                      {{/each}}
+                      
                     {{/each}}
                   </tbody>
                 </table>

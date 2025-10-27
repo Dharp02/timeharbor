@@ -108,15 +108,6 @@ export const activityWatchMethods = {
 },
   
   
-
-
-
-
-
-
-
-
-
   
   /**
    * Fetch and process ActivityWatch data
@@ -147,15 +138,19 @@ export const activityWatchMethods = {
       // 4. Store in MongoDB
       await storeActivityData(this.userId, processed);
       
-      // 5. Generate summary
-      const summary = generateSummary(processed, privacySettings);
+      // 5. Generate USER'S OWN DETAILED VIEW (always full detail for user)
+      const userSummary = generateUserDetailedSummary(processed);
       
-      // 6. Store summary
+      // 6. Generate MANAGER VIEW summary (respects privacy settings)
+      const managerSummary = generateSummary(processed, privacySettings);
+      
+      // 7. Store summary
       const summaryId = await ActivitySummary.insertAsync({
         userId: this.userId,
         teamId,
         weekStart: startDate,
-        summaryData: summary,
+        summaryData: managerSummary, // What manager sees
+        fullData: userSummary, // What user sees (stored for reference)
         privacyLevel: privacySettings.privacyLevel,
         sharedWithManager: false,
         createdAt: new Date()
@@ -163,7 +158,7 @@ export const activityWatchMethods = {
       
       return {
         success: true,
-        summary,
+        summary: userSummary, // Return full detail to user
         summaryId
       };
       
@@ -282,45 +277,64 @@ export const activityWatchMethods = {
     return enriched;
   },
 
-
-
-
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  /**
+   * Get manager view of a specific summary (for preview)
+   */
+  async 'activityWatch.getManagerView'(summaryId, teamId) {
+    check(summaryId, String);
+    check(teamId, String);
+    
+    if (!this.userId) throw new Meteor.Error('not-authorized');
+    
+    const summary = await ActivitySummary.findOneAsync({
+      _id: summaryId,
+      userId: this.userId
+    });
+    
+    if (!summary) {
+      throw new Meteor.Error('not-found', 'Summary not found');
+    }
+    
+    const privacySettings = await PrivacySettings.findOneAsync({ teamId });
+    
+    return {
+      privacyLevel: summary.privacyLevel,
+      data: summary.summaryData // This is the manager-filtered view
+    };
+  },
   
   /**
-   * Update team privacy settings (admin only)
+   * Get or create privacy settings for a team
+   */
+  async 'activityWatch.getPrivacySettings'(teamId) {
+    check(teamId, String);
+    
+    if (!this.userId) throw new Meteor.Error('not-authorized');
+    
+    let settings = await PrivacySettings.findOneAsync({ teamId });
+    
+    if (!settings) {
+      // Create default settings
+      const defaults = getDefaultPrivacySettings();
+      await PrivacySettings.insertAsync({
+        teamId,
+        ...defaults,
+        createdAt: new Date()
+      });
+      settings = defaults;
+    }
+    
+    return settings;
+  },
+  
+  /**
+   * Update privacy settings for a team
    */
   async 'activityWatch.updatePrivacySettings'(teamId, settings) {
     check(teamId, String);
     check(settings, Object);
     
     if (!this.userId) throw new Meteor.Error('not-authorized');
-    
-    // Check if user is team admin
-    const team = await Teams.findOneAsync(teamId);
-    const isAdmin = team?.admins?.includes(this.userId) || 
-                    team?.leader === this.userId;
-    
-    if (!isAdmin) {
-      throw new Meteor.Error('not-authorized', 'Only admins can update settings');
-    }
     
     // Validate privacy level
     if (![1, 2, 3].includes(settings.privacyLevel)) {
@@ -368,7 +382,6 @@ export const activityWatchMethods = {
 // Helper functions (server-side only)
 
 async function fetchFromActivityWatch(startDate, endDate) {
-
     try {
     // Try query API with proper syntax
     const bucketsRes = await axios.get('http://localhost:5600/api/0/buckets');
@@ -431,11 +444,6 @@ async function fetchFromActivityWatchDirect(startDate, endDate) {
   return allEvents;
 }
 
-
-
-
-
-
 function processActivityData(rawData, privacySettings) {
   return rawData.map(event => ({
     app: event.data?.app || 'Unknown',
@@ -452,11 +460,13 @@ function categorizeApp(appName) {
   const mapping = {
     'Code.exe': 'development',
     'Visual Studio Code': 'development',
+    'code': 'development',
     'Terminal': 'development',
     'iTerm': 'development',
     'Slack': 'communication',
     'Chrome': 'web',
-    'Firefox': 'web'
+    'Firefox': 'web',
+    'Safari': 'web'
   };
   return mapping[appName] || 'other';
 }
@@ -470,6 +480,130 @@ function extractDomain(url) {
   }
 }
 
+/**
+ * NEW: Generate detailed summary for USER'S OWN VIEW
+ * Shows everything: apps, files, websites
+ */
+function generateUserDetailedSummary(data) {
+  const apps = {};
+  let totalDuration = 0;
+  
+  // Group by app
+  data.forEach(activity => {
+    const appName = activity.app;
+    
+    if (!apps[appName]) {
+      apps[appName] = {
+        name: appName,
+        totalDuration: 0,
+        category: activity.category,
+        items: {} // files or URLs
+      };
+    }
+    
+    apps[appName].totalDuration += activity.duration;
+    totalDuration += activity.duration;
+    
+    // Extract file/URL
+    let itemKey = null;
+    
+    // For VS Code, extract file path from title
+    if (appName.toLowerCase().includes('code') || appName.toLowerCase().includes('visual studio')) {
+      itemKey = extractFilePath(activity.title);
+    } 
+    // For browsers, use domain
+    else if (activity.domain) {
+      itemKey = activity.domain;
+    }
+    // For other apps, use title or "Main Window"
+    else {
+      itemKey = activity.title || 'Main Window';
+    }
+    
+    if (itemKey) {
+      if (!apps[appName].items[itemKey]) {
+        apps[appName].items[itemKey] = 0;
+      }
+      apps[appName].items[itemKey] += activity.duration;
+    }
+  });
+  
+  // Convert to array format
+  const appsArray = Object.values(apps).map(app => {
+    const itemsArray = Object.entries(app.items)
+      .map(([name, duration]) => ({
+        name,
+        hours: (duration / 3600).toFixed(2),
+        percentage: ((duration / app.totalDuration) * 100).toFixed(1)
+      }))
+      .sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
+    
+    return {
+      name: app.name,
+      hours: (app.totalDuration / 3600).toFixed(2),
+      percentage: ((app.totalDuration / totalDuration) * 100).toFixed(1),
+      category: app.category,
+      items: itemsArray
+    };
+  }).sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
+  
+  // Separate apps and websites for charts
+  const browserApps = ['Chrome', 'Firefox', 'Safari', 'Edge'];
+  const websites = {};
+  
+  appsArray.forEach(app => {
+    if (browserApps.some(browser => app.name.toLowerCase().includes(browser.toLowerCase()))) {
+      // This is a browser, extract its websites
+      app.items.forEach(item => {
+        if (!websites[item.name]) {
+          websites[item.name] = 0;
+        }
+        websites[item.name] += parseFloat(item.hours);
+      });
+    }
+  });
+  
+  const websitesArray = Object.entries(websites)
+    .map(([name, hours]) => ({
+      name,
+      hours: hours.toFixed(2),
+      percentage: ((hours / (totalDuration / 3600)) * 100).toFixed(1)
+    }))
+    .sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
+  
+  return {
+    type: 'detailed',
+    apps: appsArray,
+    websites: websitesArray,
+    totalHours: (totalDuration / 3600).toFixed(2)
+  };
+}
+
+/**
+ * Extract file path from VS Code title
+ * Example: "app.js - myproject - Visual Studio Code" -> "myproject/app.js"
+ */
+function extractFilePath(title) {
+  if (!title) return null;
+  
+  // Remove " - Visual Studio Code" or similar
+  let cleaned = title.replace(/\s*-\s*(Visual Studio Code|Code).*$/i, '');
+  
+  // If it contains " - " it might be "filename - project"
+  const parts = cleaned.split(' - ').map(p => p.trim());
+  
+  if (parts.length >= 2) {
+    // Return "project/filename" format
+    return `${parts[1]}/${parts[0]}`;
+  }
+  
+  // Otherwise just return the filename
+  return parts[0] || null;
+}
+
+/**
+ * Generate summary for MANAGER VIEW (respects privacy settings)
+ */
 function generateSummary(processedData, privacySettings) {
   // Apply privacy filtering based on settings
   const level = privacySettings.privacyLevel || 1;
@@ -622,3 +756,4 @@ function getDefaultPrivacySettings() {
     keepSummariesMonths: 6
   };
 }
+
