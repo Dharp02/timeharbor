@@ -163,7 +163,7 @@
               </div>
             </div>
             
-            <!-- Detailed Breakdown Table (Expandable) -->
+            <!-- Detailed Breakdown Table -->
             <div class="bg-white rounded-lg shadow-md p-6 mb-6">
               <h3 class="text-lg font-semibold text-slate-800 mb-4">Detailed Breakdown</h3>
               <div class="overflow-x-auto">
@@ -178,7 +178,6 @@
                   </thead>
                   <tbody class="bg-white divide-y divide-slate-200">
                     {{#each appsWithIndex}}
-                      <!-- App Row -->
                       <tr class="app-row hover:bg-slate-50 cursor-pointer" data-app-index="{{appIndex}}">
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                           {{#if hasItems}}
@@ -188,11 +187,34 @@
                           {{/if}}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap">
-                          <div class="flex items-center">
-                            <span class="text-sm font-semibold text-slate-900">{{name}}</span>
-                            <span class="ml-2 px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-600">{{category}}</span>
+                          <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                              <span class="text-sm font-semibold text-slate-900">{{name}}</span>
+                              <span class="ml-2 px-2 py-1 text-xs rounded-full bg-slate-100 text-slate-600">{{category}}</span>
+                            </div>
+                            <div class="relative app-menu-container">
+                              <button class="app-menu-btn p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors" 
+                                      data-app-name="{{name}}"
+                                      data-app-index="{{appIndex}}"
+                                      title="Options">
+                                <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                                  <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"></path>
+                                </svg>
+                              </button>
+                              <div class="app-menu-dropdown hidden absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-slate-200 z-10">
+                                <button class="delete-app-btn w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-2"
+                                        data-app-name="{{name}}"
+                                        data-app-index="{{appIndex}}">
+                                  <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                  </svg>
+                                  Delete entire app
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </td>
+
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-900 font-medium">{{hours}}h</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
                           <div class="flex items-center">
@@ -204,14 +226,15 @@
                         </td>
                       </tr>
                       
-                      <!-- Nested Items (Files/Websites) -->
-                      {{#each items}}
-                        <tr class="nested-item-row hidden" data-parent-app="{{../appIndex}}">
-                          <td class="px-6 py-3 whitespace-nowrap"></td>
-                          <td class="px-6 py-3">
-                            <div class="pl-8 flex items-center">
+                     {{#each items}}
+                      <tr class="nested-item-row hidden" data-parent-app="{{../appIndex}}">
+                        <td class="px-6 py-3 whitespace-nowrap"></td>
+                        <td class="px-6 py-3">
+                          <div class="pl-8 flex items-center justify-between">
+                            <div class="flex items-center flex-1">
                               <svg class="h-4 w-4 text-slate-400 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                               </svg>
                               <div class="flex-1">
                                 <div class="text-sm text-slate-700 font-medium">{{name}}</div>
@@ -220,7 +243,8 @@
                                     {{#each timeRanges}}
                                       <div class="flex items-center gap-2">
                                         <svg class="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                                         </svg>
                                         <span>{{start}} - {{end}}</span>
                                         <span class="text-slate-400">({{duration}}min)</span>
@@ -230,76 +254,45 @@
                                 {{/if}}
                               </div>
                             </div>
-                          </td>
-                          <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">
-                            <div>
-                              <div class="font-medium">{{hours}}h</div>
-                              <div class="text-xs text-slate-500">{{minutes}}min</div>
+
+                            <!-- X button for individual items (ALWAYS inside the flex container) -->
+                            <button class="delete-activity-btn ml-3 p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200 flex-shrink-0"
+                                    data-activity-name="{{name}}"
+                                    data-domain="{{domain}}"
+                                    data-parent-app="{{../name}}"
+                                    title="Delete this activity">
+                              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M6 18L18 6M6 6l12 12"></path>
+                              </svg>
+                            </button>
+                          </div>
+                        </td>
+
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-600">
+                          <div>
+                            <div class="font-medium">{{hours}}h</div>
+                            <div class="text-xs text-slate-500">{{minutes}}min</div>
+                          </div>
+                        </td>
+                        <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-500">
+                          <div class="flex items-center">
+                            <div class="w-12 bg-slate-200 rounded-full h-1.5 mr-2">
+                              <div class="bg-cyan-500 h-1.5 rounded-full" style="width: {{percentage}}%"></div>
                             </div>
-                          </td>
-                          <td class="px-6 py-3 whitespace-nowrap text-sm text-slate-500">
-                            <div class="flex items-center">
-                              <div class="w-12 bg-slate-200 rounded-full h-1.5 mr-2">
-                                <div class="bg-cyan-500 h-1.5 rounded-full" style="width: {{percentage}}%"></div>
-                              </div>
-                              <span class="text-xs">{{percentage}}%</span>
-                            </div>
-                          </td>
-                        </tr>
-                      {{/each}}
-                      
+                            <span class="text-xs">{{percentage}}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    {{/each}}
                     {{/each}}
                   </tbody>
                 </table>
               </div>
             </div>
-            
-            <!-- Action Buttons -->
-            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-              <div class="flex flex-col sm:flex-row gap-4">
-                <button class="toggle-preview flex-1 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-200">
-                  {{#if showingPreview}}
-                    👁️ Hide Manager Preview
-                  {{else}}
-                    👁️ Preview Manager View
-                  {{/if}}
-                </button>
-                
-                <button class="share-report flex-1 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-200">
-                  📤 Share with Manager
-                </button>
-              </div>
-            </div>
-            
-            <!-- Manager Preview -->
-            {{#if showingPreview}}
-              <div class="bg-amber-50 border-2 border-amber-200 rounded-lg p-6">
-                <div class="flex items-center mb-4">
-                  <svg class="h-6 w-6 text-amber-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                  </svg>
-                  <h3 class="text-lg font-semibold text-amber-900">Manager's View (Based on Privacy Settings)</h3>
-                </div>
-                
-                {{#if managerView}}
-                  <div class="bg-white rounded-lg p-4">
-                    <p class="text-slate-600 mb-2"><strong>Privacy Level:</strong> {{managerView.privacyLevel}}</p>
-                    <p class="text-slate-600"><strong>What they see:</strong></p>
-                    <pre class="bg-slate-100 p-4 rounded mt-2 text-sm overflow-x-auto">{{managerViewData}}</pre>
-                  </div>
-                {{else}}
-                  <p class="text-slate-600">Loading preview...</p>
-                {{/if}}
-              </div>
-            {{/if}}
-            
           {{/if}}
-          
         {{/if}}
-        
       {{/if}}
-      
     </div>
   </div>
 </template>

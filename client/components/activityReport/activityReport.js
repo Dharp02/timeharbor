@@ -8,8 +8,6 @@ Template.activityReport.onCreated(function() {
   this.checkingConnection = new ReactiveVar(true);
   this.generatingReport = new ReactiveVar(false);
   this.currentReport = new ReactiveVar(null);
-  this.managerView = new ReactiveVar(null);
-  this.showingPreview = new ReactiveVar(false);
   this.expandedApps = new ReactiveVar(new Set()); // Track which apps are expanded
   
   // Store chart instances
@@ -25,19 +23,6 @@ Template.activityReport.onCreated(function() {
   this.endDate = new ReactiveVar(
     new Date().toISOString().split('T')[0]
   );
-  
-  this.teamId = new ReactiveVar(null);
-  
-  // Get team for privacy settings
-  this.autorun(() => {
-    if (Meteor.userId()) {
-      Meteor.call('getUserFirstTeam', (error, team) => {
-        if (team) {
-          this.teamId.set(team._id);
-        }
-      });
-    }
-  });
   
   // Check ActivityWatch connection on load
   Meteor.call('activityWatch.checkConnection', (error, result) => {
@@ -89,14 +74,6 @@ Template.activityReport.helpers({
     return Template.instance().endDate.get();
   },
   
-  showingPreview() {
-    return Template.instance().showingPreview.get();
-  },
-  
-  managerView() {
-    return Template.instance().managerView.get();
-  },
-  
   totalHours() {
     const report = Template.instance().currentReport.get();
     return report ? parseFloat(report.totalHours).toFixed(2) : '0.00';
@@ -118,17 +95,6 @@ Template.activityReport.helpers({
     const startFormatted = new Date(start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const endFormatted = new Date(end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     return `${startFormatted} - ${endFormatted}`;
-  },
-  
-  managerViewData() {
-    const view = Template.instance().managerView.get();
-    if (!view) return '';
-    
-    // Format the data nicely
-    if (typeof view.data === 'object') {
-      return JSON.stringify(view.data, null, 2);
-    }
-    return view.data;
   },
   
   appsWithIndex() {
@@ -200,6 +166,11 @@ Template.activityReport.events({
   },
   
   'click .app-row'(event, template) {
+    // Don't expand/collapse if clicking on the menu button
+    if ($(event.target).closest('.app-menu-btn, .app-menu-dropdown').length > 0) {
+      return;
+    }
+    
     event.preventDefault();
     
     const appIndex = parseInt($(event.currentTarget).data('app-index'));
@@ -220,49 +191,95 @@ Template.activityReport.events({
     template.expandedApps.set(new Set(expandedApps));
   },
   
-  'click .toggle-preview'(event, template) {
-    const showing = template.showingPreview.get();
+  'click .app-menu-btn'(event, template) {
+    event.stopPropagation();
+    event.preventDefault();
     
-    if (!showing) {
-      // Load manager view
-      const teamId = template.teamId.get();
-      const summaryId = template.currentSummaryId;
+    const $menu = $(event.currentTarget).siblings('.app-menu-dropdown');
+    
+    // Close all other menus
+    $('.app-menu-dropdown').not($menu).addClass('hidden');
+    
+    // Toggle this menu
+    $menu.toggleClass('hidden');
+  },
+  
+  'click .delete-app-btn'(event, template) {
+    event.stopPropagation();
+    event.preventDefault();
+    
+    const appName = $(event.currentTarget).data('app-name');
+    
+    if (confirm(`Are you sure you want to permanently delete all activity data for "${appName}"?\n\nThis will remove it from all future reports and cannot be undone.`)) {
+      // Close the menu
+      $(event.currentTarget).closest('.app-menu-dropdown').addClass('hidden');
       
-      if (summaryId && teamId) {
-        Meteor.call('activityWatch.getManagerView', summaryId, teamId, 
-          (error, result) => {
-            if (error) {
-              alert('Failed to load preview: ' + error.message);
-            } else if (result) {
-              template.managerView.set(result);
-              template.showingPreview.set(true);
-            }
+      // Call server method to delete
+      Meteor.call('activityWatch.deleteApp', appName, (error) => {
+        if (error) {
+          alert('Failed to delete: ' + error.message);
+        } else {
+          alert('✅ App deleted successfully!');
+          
+          // Regenerate the report
+          const startDate = template.startDate.get();
+          const endDate = template.endDate.get();
+          
+          if (startDate && endDate) {
+            // Trigger report regeneration
+            $('.generate-report').click();
           }
-        );
-      } else {
-        alert('Please generate a report first');
-      }
-    } else {
-      template.showingPreview.set(false);
+        }
+      });
     }
   },
   
-  'click .share-report'(event, template) {
-    const summaryId = template.currentSummaryId;
+  'click .delete-activity-btn'(event, template) {
+    event.stopPropagation();
+    event.preventDefault();
     
-    if (!summaryId) {
-      alert('No report to share. Please generate a report first.');
-      return;
-    }
+    const activityName = $(event.currentTarget).data('activity-name');
+    const domain = $(event.currentTarget).data('domain');
+    const parentApp = $(event.currentTarget).data('parent-app');
     
-    if (confirm('Share this report with your manager?')) {
-      Meteor.call('activityWatch.shareSummary', summaryId, (error) => {
+    console.log('🗑️ Delete button clicked:', {
+      activityName,
+      domain,
+      parentApp
+    });
+    
+    if (confirm(`Are you sure you want to permanently delete activity data for "${activityName}"?\n\nThis will remove it from all future reports and cannot be undone.`)) {
+      console.log('✅ User confirmed deletion, calling server method...');
+      
+      // Call server method to delete
+      Meteor.call('activityWatch.deleteActivity', activityName, domain, parentApp, (error, result) => {
         if (error) {
-          alert('Failed to share: ' + error.message);
+          console.error('❌ Delete failed:', error);
+          alert('Failed to delete: ' + error.message);
         } else {
-          alert('✅ Report shared successfully!');
+          console.log('✅ Delete successful:', result);
+          alert(`✅ Activity deleted successfully! (${result.deletedCount} records removed)`);
+          
+          // Regenerate the report
+          const startDate = template.startDate.get();
+          const endDate = template.endDate.get();
+          
+          if (startDate && endDate) {
+            console.log('🔄 Regenerating report...');
+            // Trigger report regeneration
+            $('.generate-report').click();
+          }
         }
       });
+    } else {
+      console.log('❌ User cancelled deletion');
+    }
+  },
+  
+  // Close dropdown menus when clicking outside
+  'click .detailed-breakdown-table'(event, template) {
+    if (!$(event.target).closest('.app-menu-btn, .app-menu-dropdown').length) {
+      $('.app-menu-dropdown').addClass('hidden');
     }
   }
 });
