@@ -8,7 +8,7 @@ Template.activityReport.onCreated(function() {
   this.checkingConnection = new ReactiveVar(true);
   this.generatingReport = new ReactiveVar(false);
   this.currentReport = new ReactiveVar(null);
-  this.expandedApps = new ReactiveVar(new Set()); // Track which apps are expanded
+  this.expandedApps = new ReactiveVar(new Set());
   
   // Store chart instances
   this.appsPieChart = null;
@@ -101,7 +101,6 @@ Template.activityReport.helpers({
     const report = Template.instance().currentReport.get();
     if (!report || !report.apps) return [];
     
-    // Add index to each app for nested items
     return report.apps.map((app, index) => {
       return {
         ...app,
@@ -133,7 +132,6 @@ Template.activityReport.events({
       return;
     }
     
-    // Validate date range
     if (new Date(startDate) > new Date(endDate)) {
       alert('Start date must be before end date');
       return;
@@ -152,10 +150,8 @@ Template.activityReport.events({
         template.currentReport.set(result.summary);
         template.currentSummaryId = result.summaryId;
         
-        // Reset expanded apps
         template.expandedApps.set(new Set());
         
-        // Wait for DOM to update, then initialize charts
         Tracker.afterFlush(() => {
           Meteor.setTimeout(() => {
             initializeCharts(template);
@@ -166,8 +162,8 @@ Template.activityReport.events({
   },
   
   'click .app-row'(event, template) {
-    // Don't expand/collapse if clicking on the menu button
-    if ($(event.target).closest('.app-menu-btn, .app-menu-dropdown').length > 0) {
+    // Don't expand if clicking checkbox
+    if ($(event.target).closest('input[type="checkbox"]').length > 0) {
       return;
     }
     
@@ -177,12 +173,10 @@ Template.activityReport.events({
     const expandedApps = template.expandedApps.get();
     
     if (expandedApps.has(appIndex)) {
-      // Collapse
       expandedApps.delete(appIndex);
       $(event.currentTarget).find('.expand-icon').removeClass('rotate-90');
       $(`.nested-item-row[data-parent-app="${appIndex}"]`).addClass('hidden');
     } else {
-      // Expand
       expandedApps.add(appIndex);
       $(event.currentTarget).find('.expand-icon').addClass('rotate-90');
       $(`.nested-item-row[data-parent-app="${appIndex}"]`).removeClass('hidden');
@@ -191,98 +185,191 @@ Template.activityReport.events({
     template.expandedApps.set(new Set(expandedApps));
   },
   
-  'click .app-menu-btn'(event, template) {
-    event.stopPropagation();
-    event.preventDefault();
+  // Select All checkbox
+  'change .select-all-checkbox'(event, template) {
+    const isChecked = $(event.currentTarget).prop('checked');
     
-    const $menu = $(event.currentTarget).siblings('.app-menu-dropdown');
+    // Check/uncheck all app checkboxes
+    $('.app-checkbox').prop('checked', isChecked);
     
-    // Close all other menus
-    $('.app-menu-dropdown').not($menu).addClass('hidden');
-    
-    // Toggle this menu
-    $menu.toggleClass('hidden');
+    // Check/uncheck all item checkboxes
+    $('.item-checkbox').prop('checked', isChecked);
   },
   
-  'click .delete-app-btn'(event, template) {
-    event.stopPropagation();
-    event.preventDefault();
+  // App checkbox - handles parent-child relationship
+  'change .app-checkbox'(event, template) {
+    const isChecked = $(event.currentTarget).prop('checked');
+    const appIndex = $(event.currentTarget).data('app-index');
     
-    const appName = $(event.currentTarget).data('app-name');
+    // Check/uncheck all child items for this app
+    $(`.item-checkbox[data-parent-app="${appIndex}"]`).prop('checked', isChecked);
     
-    if (confirm(`Are you sure you want to permanently delete all activity data for "${appName}"?\n\nThis will remove it from all future reports and cannot be undone.`)) {
-      // Close the menu
-      $(event.currentTarget).closest('.app-menu-dropdown').addClass('hidden');
-      
-      // Call server method to delete
-      Meteor.call('activityWatch.deleteApp', appName, (error) => {
-        if (error) {
-          alert('Failed to delete: ' + error.message);
-        } else {
-          alert('✅ App deleted successfully!');
-          
-          // Regenerate the report
-          const startDate = template.startDate.get();
-          const endDate = template.endDate.get();
-          
-          if (startDate && endDate) {
-            // Trigger report regeneration
-            $('.generate-report').click();
-          }
-        }
-      });
-    }
+    // Update select-all checkbox state
+    updateSelectAllState();
   },
   
-  'click .delete-activity-btn'(event, template) {
-    event.stopPropagation();
-    event.preventDefault();
+  // Item checkbox - update parent if needed
+  'change .item-checkbox'(event, template) {
+    const parentAppIndex = $(event.currentTarget).data('parent-app');
     
-    const activityName = $(event.currentTarget).data('activity-name');
-    const domain = $(event.currentTarget).data('domain');
-    const parentApp = $(event.currentTarget).data('parent-app');
+    // Check if all items for this parent are checked
+    const allItems = $(`.item-checkbox[data-parent-app="${parentAppIndex}"]`);
+    const checkedItems = $(`.item-checkbox[data-parent-app="${parentAppIndex}"]:checked`);
     
-    console.log('🗑️ Delete button clicked:', {
-      activityName,
-      domain,
-      parentApp
-    });
+    // Update parent checkbox state
+    const parentCheckbox = $(`.app-checkbox[data-app-index="${parentAppIndex}"]`);
     
-    if (confirm(`Are you sure you want to permanently delete activity data for "${activityName}"?\n\nThis will remove it from all future reports and cannot be undone.`)) {
-      console.log('✅ User confirmed deletion, calling server method...');
-      
-      // Call server method to delete
-      Meteor.call('activityWatch.deleteActivity', activityName, domain, parentApp, (error, result) => {
-        if (error) {
-          console.error('❌ Delete failed:', error);
-          alert('Failed to delete: ' + error.message);
-        } else {
-          console.log('✅ Delete successful:', result);
-          alert(`✅ Activity deleted successfully! (${result.deletedCount} records removed)`);
-          
-          // Regenerate the report
-          const startDate = template.startDate.get();
-          const endDate = template.endDate.get();
-          
-          if (startDate && endDate) {
-            console.log('🔄 Regenerating report...');
-            // Trigger report regeneration
-            $('.generate-report').click();
-          }
-        }
-      });
+    if (checkedItems.length === 0) {
+      // No items checked - uncheck parent
+      parentCheckbox.prop('checked', false);
+    } else if (checkedItems.length === allItems.length) {
+      // All items checked - check parent
+      parentCheckbox.prop('checked', true);
     } else {
-      console.log('❌ User cancelled deletion');
+      // Some items checked - indeterminate state (optional, we'll just uncheck for simplicity)
+      parentCheckbox.prop('checked', false);
     }
+    
+    // Update select-all checkbox state
+    updateSelectAllState();
   },
   
-  // Close dropdown menus when clicking outside
-  'click .detailed-breakdown-table'(event, template) {
-    if (!$(event.target).closest('.app-menu-btn, .app-menu-dropdown').length) {
-      $('.app-menu-dropdown').addClass('hidden');
+  // Export Summary button
+  'click .export-summary-btn'(event, template) {
+    const report = template.currentReport.get();
+    if (!report) {
+      alert('No report available to export');
+      return;
     }
+    
+    const selectedData = collectSelectedData(report);
+    
+    if (selectedData.apps.length === 0) {
+      alert('Please select at least one app or activity to export');
+      return;
+    }
+    
+    // Add metadata
+    const exportData = {
+      dateRange: {
+        start: template.startDate.get(),
+        end: template.endDate.get()
+      },
+      generatedAt: new Date().toISOString(),
+      totalHours: calculateTotalHours(selectedData),
+      apps: selectedData.apps
+    };
+    
+    // Download as JSON file
+    downloadJSON(exportData, `activity-summary-${template.startDate.get()}_${template.endDate.get()}.json`);
   }
 });
+
+// Helper function to update select-all checkbox state
+function updateSelectAllState() {
+  const allAppCheckboxes = $('.app-checkbox');
+  const checkedAppCheckboxes = $('.app-checkbox:checked');
+  const selectAllCheckbox = $('.select-all-checkbox');
+  
+  if (checkedAppCheckboxes.length === 0) {
+    selectAllCheckbox.prop('checked', false);
+  } else if (checkedAppCheckboxes.length === allAppCheckboxes.length) {
+    selectAllCheckbox.prop('checked', true);
+  } else {
+    selectAllCheckbox.prop('checked', false);
+  }
+}
+
+// Collect selected data for export
+function collectSelectedData(report) {
+  const selectedApps = [];
+  
+  $('.app-checkbox').each(function() {
+    const isAppChecked = $(this).prop('checked');
+    const appIndex = $(this).data('app-index');
+    const appData = report.apps[appIndex];
+    
+    if (!appData) return;
+    
+    // Check if any child items are selected
+    const selectedItems = [];
+    $(`.item-checkbox[data-parent-app="${appIndex}"]:checked`).each(function() {
+      const itemName = $(this).data('item-name');
+      const itemData = appData.items.find(item => item.name === itemName);
+      
+      if (itemData) {
+        selectedItems.push({
+          name: itemData.name,
+          hours: itemData.hours,
+          minutes: itemData.minutes,
+          percentage: itemData.percentage,
+          timeRanges: itemData.timeRanges,
+          domain: itemData.domain
+        });
+      }
+    });
+    
+    // If app is checked but no items explicitly selected, include all items
+    // If app is not checked but items are selected, include only those items
+    if (isAppChecked && selectedItems.length === 0) {
+      // App checked, include all items
+      selectedApps.push({
+        name: appData.name,
+        hours: appData.hours,
+        percentage: appData.percentage,
+        category: appData.category,
+        items: appData.items.map(item => ({
+          name: item.name,
+          hours: item.hours,
+          minutes: item.minutes,
+          percentage: item.percentage,
+          timeRanges: item.timeRanges,
+          domain: item.domain
+        }))
+      });
+    } else if (selectedItems.length > 0) {
+      // Items selected, include only those
+      const totalItemsHours = selectedItems.reduce((sum, item) => sum + parseFloat(item.hours), 0);
+      
+      selectedApps.push({
+        name: appData.name,
+        hours: totalItemsHours.toFixed(2),
+        percentage: appData.percentage,
+        category: appData.category,
+        items: selectedItems
+      });
+    }
+  });
+  
+  return { apps: selectedApps };
+}
+
+// Calculate total hours from selected data
+function calculateTotalHours(selectedData) {
+  const total = selectedData.apps.reduce((sum, app) => {
+    return sum + parseFloat(app.hours);
+  }, 0);
+  
+  return total.toFixed(2);
+}
+
+// Download JSON file
+function downloadJSON(data, filename) {
+  const jsonStr = JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  URL.revokeObjectURL(url);
+  
+  console.log('✅ Exported summary:', filename);
+}
 
 // Initialize Chart.js charts
 function initializeCharts(template) {
@@ -344,7 +431,6 @@ function createDailyDataFromApps(report, startDate, endDate) {
       date: date.toISOString().split('T')[0]
     };
     
-    // Distribute hours across apps with some randomness for demo
     report.apps.forEach(app => {
       const avgHours = parseFloat(app.hours) / days;
       const variance = avgHours * 0.3;
@@ -368,18 +454,9 @@ function renderAppsPieChart(template, apps) {
   const canvas = $canvas[0];
   const ctx = canvas.getContext('2d');
   
-  // Tailwind color palette
   const COLORS = [
-    '#8b5cf6', // purple-500
-    '#06b6d4', // cyan-500
-    '#10b981', // emerald-500
-    '#f59e0b', // amber-500
-    '#ef4444', // red-500
-    '#ec4899', // pink-500
-    '#6366f1', // indigo-500
-    '#14b8a6', // teal-500
-    '#f97316', // orange-500
-    '#84cc16', // lime-500
+    '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444',
+    '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16',
   ];
   
   const data = {
@@ -404,9 +481,7 @@ function renderAppsPieChart(template, apps) {
           position: 'bottom',
           labels: {
             padding: 15,
-            font: {
-              size: 12
-            }
+            font: { size: 12 }
           }
         },
         tooltip: {
@@ -443,18 +518,9 @@ function renderWebsitesPieChart(template, websites) {
   const canvas = $canvas[0];
   const ctx = canvas.getContext('2d');
   
-  // Different color palette for websites
   const COLORS = [
-    '#3b82f6', // blue-500
-    '#8b5cf6', // purple-500
-    '#ec4899', // pink-500
-    '#f43f5e', // rose-500
-    '#f59e0b', // amber-500
-    '#10b981', // emerald-500
-    '#06b6d4', // cyan-500
-    '#6366f1', // indigo-500
-    '#14b8a6', // teal-500
-    '#84cc16', // lime-500
+    '#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b',
+    '#10b981', '#06b6d4', '#6366f1', '#14b8a6', '#84cc16',
   ];
   
   const data = {
@@ -479,9 +545,7 @@ function renderWebsitesPieChart(template, websites) {
           position: 'bottom',
           labels: {
             padding: 15,
-            font: {
-              size: 12
-            }
+            font: { size: 12 }
           }
         },
         tooltip: {
@@ -518,7 +582,6 @@ function renderBarChart(template, dailyData) {
   const canvas = $canvas[0];
   const ctx = canvas.getContext('2d');
   
-  // Extract all unique app names from daily data
   const appNames = new Set();
   dailyData.forEach(day => {
     Object.keys(day).forEach(key => {
@@ -530,18 +593,9 @@ function renderBarChart(template, dailyData) {
   
   const appNamesArray = Array.from(appNames);
   
-  // Color mapping
   const COLORS = [
-    '#8b5cf6', // purple-500
-    '#06b6d4', // cyan-500
-    '#10b981', // emerald-500
-    '#f59e0b', // amber-500
-    '#ef4444', // red-500
-    '#ec4899', // pink-500
-    '#6366f1', // indigo-500
-    '#14b8a6', // teal-500
-    '#f97316', // orange-500
-    '#84cc16', // lime-500
+    '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444',
+    '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16',
   ];
   
   const datasets = appNamesArray.map((appName, index) => ({
@@ -569,9 +623,7 @@ function renderBarChart(template, dailyData) {
       scales: {
         x: {
           stacked: true,
-          grid: {
-            display: false
-          }
+          grid: { display: false }
         },
         y: {
           stacked: true,
@@ -592,9 +644,7 @@ function renderBarChart(template, dailyData) {
           position: 'bottom',
           labels: {
             padding: 15,
-            font: {
-              size: 11
-            },
+            font: { size: 11 },
             boxWidth: 12
           }
         },
