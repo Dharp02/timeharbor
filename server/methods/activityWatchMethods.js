@@ -371,6 +371,7 @@ function processActivityData(rawData) {
   console.log(`📥 Processing ${rawData.length} raw activities`);
   
   return rawData.map(event => {
+    
     const activity = {
       app: event.data?.app || 'Unknown',
       url: event.data?.url || null,
@@ -413,12 +414,35 @@ function categorizeApp(appName) {
 
 function extractDomain(url) {
   if (!url) return null;
+  
   try {
-    const hostname = new URL(url).hostname;
+    // Add protocol if missing
+    let processedUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      processedUrl = 'https://' + url;
+    }
+    
+    const hostname = new URL(processedUrl).hostname;
     console.log(`  🔗 Extracted domain: ${hostname} from ${url}`);
     return hostname;
-  } catch {
-    console.log(`  ❌ Failed to extract domain from: ${url}`);
+  } catch (error) {
+    console.log(`  ❌ Failed to extract domain from: ${url}`, error.message);
+    
+    // Fallback: Try to extract domain manually
+    try {
+      // Remove protocol if exists
+      const withoutProtocol = url.replace(/^https?:\/\//, '');
+      // Get first part (domain)
+      const domain = withoutProtocol.split('/')[0].split('?')[0];
+      
+      if (domain && domain.includes('.')) {
+        console.log(`  ✅ Fallback extracted: ${domain}`);
+        return domain;
+      }
+    } catch (fallbackError) {
+      console.log(`  ❌ Fallback also failed`);
+    }
+    
     return null;
   }
 }
