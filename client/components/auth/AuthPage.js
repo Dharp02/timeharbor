@@ -78,6 +78,7 @@ Template.authPage.events({
   
   'submit #signupForm'(event) {
     event.preventDefault();
+    alert('Signup is disabled for now.');
     const { email, password, confirmPassword } = event.target;
     
     if (password.value !== confirmPassword.value) return alert('Passwords do not match');

@@ -445,15 +445,34 @@ async function fetchFromActivityWatchDirect(startDate, endDate) {
 }
 
 function processActivityData(rawData, privacySettings) {
-  return rawData.map(event => ({
-    app: event.data?.app || 'Unknown',
-    url: event.data?.url || null,
-    domain: extractDomain(event.data?.url),
-    title: event.data?.title || null,
-    duration: event.duration || 0,
-    timestamp: new Date(event.timestamp),
-    category: categorizeApp(event.data?.app)
-  }));
+  console.log(`📥 Processing ${rawData.length} raw activities`);
+  
+  const processed = rawData.map(event => {
+    const activity = {
+      app: event.data?.app || 'Unknown',
+      url: event.data?.url || null,
+      domain: extractDomain(event.data?.url),
+      title: event.data?.title || null,
+      duration: event.duration || 0,
+      timestamp: new Date(event.timestamp),
+      category: categorizeApp(event.data?.app)
+    };
+    
+    // Log browser activities to debug
+    if (activity.app && activity.app.toLowerCase().includes('chrome')) {
+      console.log('🌐 Chrome activity:', {
+        app: activity.app,
+        title: activity.title,
+        url: activity.url,
+        domain: activity.domain,
+        duration: activity.duration
+      });
+    }
+    
+    return activity;
+  });
+  
+  return processed;
 }
 
 function categorizeApp(appName) {
@@ -474,15 +493,18 @@ function categorizeApp(appName) {
 function extractDomain(url) {
   if (!url) return null;
   try {
-    return new URL(url).hostname;
+    const hostname = new URL(url).hostname;
+    console.log(`  🔗 Extracted domain: ${hostname} from ${url}`);
+    return hostname;
   } catch {
+    console.log(`  ❌ Failed to extract domain from: ${url}`);
     return null;
   }
 }
 
 /**
  * NEW: Generate detailed summary for USER'S OWN VIEW
- * Shows everything: apps, files, websites
+ * Shows everything: apps, files, websites with time ranges
  */
 function generateUserDetailedSummary(data) {
   const apps = {};
@@ -497,45 +519,85 @@ function generateUserDetailedSummary(data) {
         name: appName,
         totalDuration: 0,
         category: activity.category,
-        items: {} // files or URLs
+        items: [] // Array of individual activities with time ranges
       };
     }
     
     apps[appName].totalDuration += activity.duration;
     totalDuration += activity.duration;
     
-    // Extract file/URL
-    let itemKey = null;
+    // Determine what to show for this activity
+    let itemName = null;
     
     // For VS Code, extract file path from title
     if (appName.toLowerCase().includes('code') || appName.toLowerCase().includes('visual studio')) {
-      itemKey = extractFilePath(activity.title);
+      itemName = extractFilePath(activity.title) || activity.title || 'Untitled';
     } 
-    // For browsers, use domain
+    // For browsers, use the title (which includes the page name)
     else if (activity.domain) {
-      itemKey = activity.domain;
+      // Use the full title but clean it up
+      itemName = activity.title ? activity.title.replace(/ - Google Chrome$| - Mozilla Firefox$| - Safari$/i, '') : activity.domain;
     }
-    // For other apps, use title or "Main Window"
+    // For other apps, use title
     else {
-      itemKey = activity.title || 'Main Window';
+      itemName = activity.title || 'Main Window';
     }
     
-    if (itemKey) {
-      if (!apps[appName].items[itemKey]) {
-        apps[appName].items[itemKey] = 0;
-      }
-      apps[appName].items[itemKey] += activity.duration;
-    }
+    // Add this activity to the app's items
+    apps[appName].items.push({
+      name: itemName,
+      duration: activity.duration,
+      startTime: activity.timestamp,
+      endTime: new Date(activity.timestamp.getTime() + activity.duration * 1000),
+      domain: activity.domain
+    });
   });
   
-  // Convert to array format
+  // Convert to array format and merge similar items
   const appsArray = Object.values(apps).map(app => {
-    const itemsArray = Object.entries(app.items)
-      .map(([name, duration]) => ({
-        name,
-        hours: (duration / 3600).toFixed(2),
-        percentage: ((duration / app.totalDuration) * 100).toFixed(1)
-      }))
+    // Group items by name and calculate total duration + time ranges
+    const groupedItems = {};
+    
+    app.items.forEach(item => {
+      if (!groupedItems[item.name]) {
+        groupedItems[item.name] = {
+          name: item.name,
+          totalDuration: 0,
+          timeRanges: [],
+          domain: item.domain
+        };
+      }
+      
+      groupedItems[item.name].totalDuration += item.duration;
+      groupedItems[item.name].timeRanges.push({
+        start: item.startTime,
+        end: item.endTime,
+        duration: item.duration
+      });
+    });
+    
+    // Convert grouped items to array with formatted time ranges
+    const itemsArray = Object.values(groupedItems)
+      .map(item => {
+        // Sort time ranges by start time
+        item.timeRanges.sort((a, b) => a.start - b.start);
+        
+        // Merge consecutive/overlapping time ranges
+        const mergedRanges = mergeTimeRanges(item.timeRanges);
+        
+        return {
+          name: item.name,
+          hours: (item.totalDuration / 3600).toFixed(2),
+          minutes: Math.round(item.totalDuration / 60),
+          percentage: ((item.totalDuration / app.totalDuration) * 100).toFixed(1),
+          timeRanges: mergedRanges.map(range => ({
+            start: formatTime(range.start),
+            end: formatTime(range.end),
+            duration: Math.round(range.duration / 60) // in minutes
+          })),
+          domain: item.domain
+        };
+      })
       .sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
     
     return {
@@ -548,20 +610,49 @@ function generateUserDetailedSummary(data) {
   }).sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
   
   // Separate apps and websites for charts
-  const browserApps = ['Chrome', 'Firefox', 'Safari', 'Edge'];
+  const browserApps = ['chrome', 'firefox', 'safari', 'edge', 'brave', 'opera', 'msedge'];
   const websites = {};
   
+  console.log('🔍 Extracting websites from apps:', appsArray.map(a => a.name));
+  
   appsArray.forEach(app => {
-    if (browserApps.some(browser => app.name.toLowerCase().includes(browser.toLowerCase()))) {
+    // Check if app name contains any browser keyword (case-insensitive)
+    const appNameLower = app.name.toLowerCase();
+    const isBrowser = browserApps.some(browser => appNameLower.includes(browser));
+    
+    console.log(`📱 Checking app: ${app.name}, isBrowser: ${isBrowser}`);
+    
+    if (isBrowser) {
+      console.log(`📊 Found browser: ${app.name}, items:`, app.items.length);
+      
       // This is a browser, extract its websites
       app.items.forEach(item => {
-        if (!websites[item.name]) {
-          websites[item.name] = 0;
+        console.log(`  - Item: ${item.name}, domain: ${item.domain}, hours: ${item.hours}`);
+        
+        // Use domain if available, otherwise try to extract from name
+        const websiteDomain = item.domain || extractDomainFromTitle(item.name);
+        
+        if (websiteDomain && websiteDomain !== 'null') {
+          if (!websites[websiteDomain]) {
+            websites[websiteDomain] = 0;
+          }
+          websites[websiteDomain] += parseFloat(item.hours);
+          console.log(`    ✅ Added to websites: ${websiteDomain} = ${item.hours}h`);
+        } else {
+          // If no domain, just use the item name for the website
+          const siteName = item.name;
+          if (!websites[siteName]) {
+            websites[siteName] = 0;
+          }
+          websites[siteName] += parseFloat(item.hours);
+          console.log(`    ✅ Added to websites (no domain): ${siteName} = ${item.hours}h`);
         }
-        websites[item.name] += parseFloat(item.hours);
       });
     }
   });
+  
+  console.log('🌐 Final websites object:', websites);
+  console.log('🌐 Websites count:', Object.keys(websites).length);
   
   const websitesArray = Object.entries(websites)
     .map(([name, hours]) => ({
@@ -571,12 +662,66 @@ function generateUserDetailedSummary(data) {
     }))
     .sort((a, b) => parseFloat(b.hours) - parseFloat(a.hours));
   
+  console.log('📊 Final websitesArray:', websitesArray);
+  
   return {
     type: 'detailed',
     apps: appsArray,
     websites: websitesArray,
     totalHours: (totalDuration / 3600).toFixed(2)
   };
+}
+
+/**
+ * Try to extract domain from a title string
+ */
+function extractDomainFromTitle(title) {
+  if (!title) return null;
+  
+  // Look for URL patterns in the title
+  const urlPattern = /(?:https?:\/\/)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/;
+  const match = title.match(urlPattern);
+  
+  if (match) {
+    return match[1];
+  }
+  
+  return null;
+}
+
+/**
+ * Merge consecutive or overlapping time ranges
+ */
+function mergeTimeRanges(ranges) {
+  if (ranges.length === 0) return [];
+  
+  const merged = [];
+  let current = { ...ranges[0] };
+  
+  for (let i = 1; i < ranges.length; i++) {
+    const next = ranges[i];
+    
+    // If ranges are within 5 minutes of each other, merge them
+    if (next.start.getTime() - current.end.getTime() < 5 * 60 * 1000) {
+      current.end = new Date(Math.max(current.end.getTime(), next.end.getTime()));
+      current.duration += next.duration;
+    } else {
+      merged.push(current);
+      current = { ...next };
+    }
+  }
+  
+  merged.push(current);
+  return merged;
+}
+
+/**
+ * Format time as HH:MM
+ */
+function formatTime(date) {
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  return `${hours}:${minutes}`;
 }
 
 /**
@@ -757,3 +902,5 @@ function getDefaultPrivacySettings() {
   };
 }
 
+// Export methods without registering them (they should be registered in server/main.js or similar)
+// If you need to register them here, make sure this file is only imported once
